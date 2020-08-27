@@ -247,7 +247,8 @@ describe('src/queries.js', function () {
                 payload: {
                   type: 'PAGEVIEW',
                   timestamp: minuteAgo.toJSON(),
-                  pageload: 150
+                  pageload: 150,
+                  sessionId: null
                 }
               },
               {
@@ -258,7 +259,8 @@ describe('src/queries.js', function () {
                 payload: {
                   type: 'PAGEVIEW',
                   timestamp: subDays(now, 12).toJSON(),
-                  pageload: null
+                  pageload: null,
+                  sessionId: null
                 }
               },
               {
@@ -269,7 +271,8 @@ describe('src/queries.js', function () {
                 payload: {
                   type: 'PAGEVIEW',
                   timestamp: subDays(now, 4).toJSON(),
-                  pageload: 150
+                  pageload: 150,
+                  sessionId: null
                 }
               }
             ].map(function (event) {

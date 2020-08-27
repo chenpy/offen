@@ -6,6 +6,7 @@
 var assert = require('assert')
 
 var stats = require('./stats')
+var buildAggregate = require('./queries').buildAggregate
 
 describe('src/stats.js', function () {
   describe('stats.loss(events)', function () {
@@ -37,9 +38,9 @@ describe('src/stats.js', function () {
     })
   })
 
-  describe('stats.uniqueSessions(events)', function () {
+  describe('stats.uniqueSessions(aggregate)', function () {
     it('counts the number of unique session identifiers', function () {
-      return stats.uniqueSessions([
+      return stats.uniqueSessions(buildAggregate([
         {},
         { payload: {} },
         { payload: { sessionId: 'session-a' } },
@@ -48,7 +49,7 @@ describe('src/stats.js', function () {
         { payload: { sessionId: 'session-a' } },
         { payload: { sessionId: 'session-a' } },
         { payload: { sessionId: 'session-B' } }
-      ])
+      ]))
         .then(function (result) {
           assert.strictEqual(result, 3)
         })
@@ -61,9 +62,9 @@ describe('src/stats.js', function () {
     })
   })
 
-  describe('stats.bounceRate(events)', function () {
+  describe('stats.bounceRate(aggregate)', function () {
     it('calculates the percentage of session identifiers that occur only once', function () {
-      return stats.bounceRate([
+      return stats.bounceRate(buildAggregate([
         { payload: { sessionId: 'session-a' } },
         { payload: { sessionId: 'session-b' } },
         { payload: { sessionId: 'session-B' } },
@@ -72,57 +73,57 @@ describe('src/stats.js', function () {
         { payload: { sessionId: 'session-B' } },
         { payload: { sessionId: 'session-B' } },
         { timestamp: new Date().toJSON() }
-      ])
+      ]))
         .then(function (result) {
           assert.strictEqual(result, 0.75)
         })
     })
     it('returns 0 on when given an empty list', function () {
-      return stats.bounceRate([])
+      return stats.bounceRate(buildAggregate([]))
         .then(function (result) {
           assert.strictEqual(result, 0)
         })
     })
     it('returns 1 on a list of unique session id', function () {
-      return stats.bounceRate([
+      return stats.bounceRate(buildAggregate([
         { payload: { sessionId: 'session-a' } },
         { payload: { sessionId: 'session-b' } },
         { payload: { sessionId: 'session-B' } },
         { payload: { sessionId: 'session-c' } },
         {}
-      ])
+      ]))
         .then(function (result) {
           assert.strictEqual(result, 1)
         })
     })
   })
 
-  describe('stats.avgPageload(events)', function () {
+  describe('stats.avgPageload(aggregate)', function () {
     it('calculates the average of the pageload times present in the set of events', function () {
-      return stats.avgPageload([
+      return stats.avgPageload(buildAggregate([
         { timestamp: new Date().toJSON() },
-        { payload: { pageload: 200 } },
+        { payload: { sessionId: 'a', pageload: 200 } },
         { payload: {} },
-        { payload: { pageload: 200 } },
-        { payload: { pageload: 400 } },
-        { payload: { pageload: 100 } },
-        { payload: { pageload: 100 } }
-      ])
+        { payload: { sessionId: 'b', pageload: 200 } },
+        { payload: { sessionId: 'z', pageload: 400 } },
+        { payload: { sessionId: 'a', pageload: 100 } },
+        { payload: { sessionId: 'b', pageload: 100 } }
+      ]))
         .then(function (result) {
           assert.strictEqual(result, 200)
         })
     })
     it('returns null on an empty list of events', function () {
-      return stats.avgPageload([])
+      return stats.avgPageload(buildAggregate([]))
         .then(function (result) {
           assert.strictEqual(result, null)
         })
     })
   })
 
-  describe('stats.avgPageDepth(events)', function () {
+  describe('stats.avgPageDepth(aggregate)', function () {
     it('returns the average session length', function () {
-      return stats.avgPageDepth([
+      return stats.avgPageDepth(buildAggregate([
         {},
         { payload: { sessionId: 'session-a' } },
         { payload: { sessionId: 'session-b' } },
@@ -130,13 +131,13 @@ describe('src/stats.js', function () {
         { payload: { sessionId: 'session-a' } },
         { payload: { sessionId: 'session-c' } },
         { payload: { sessionId: 'session-a' } }
-      ])
+      ]))
         .then(function (result) {
           assert.strictEqual(result, 2)
         })
     })
     it('returns null when given an empty array of events', function () {
-      return stats.avgPageDepth([])
+      return stats.avgPageDepth(buildAggregate([]))
         .then(function (result) {
           assert.strictEqual(result, null)
         })
@@ -158,7 +159,7 @@ describe('src/stats.js', function () {
         })
     })
     it('returns 0 when given an empty list', function () {
-      return stats.pageviews([])
+      return stats.pageviews(buildAggregate([]))
         .then(function (result) {
           assert.strictEqual(result, 0)
         })
@@ -209,9 +210,9 @@ describe('src/stats.js', function () {
     })
   })
 
-  describe('stats.referrers(events)', function () {
+  describe('stats.referrers(aggregate)', function () {
     it('returns sorted referrer values from foreign domains grouped by host', function () {
-      return stats.referrers([
+      return stats.referrers(buildAggregate([
         {},
         { payload: { sessionId: 'session-a', href: new window.URL('https://www.mysite.com/x'), referrer: new window.URL('https://www.example.net/foo') } },
         { payload: { sessionId: 'session-a', href: new window.URL('https://www.mysite.com/y'), referrer: new window.URL('https://www.example.net/bar') } },
@@ -219,7 +220,7 @@ describe('src/stats.js', function () {
         { payload: { sessionId: 'session-b', href: new window.URL('https://www.mysite.com/a'), referrer: new window.URL('https://www.example.net/baz') } },
         { payload: { sessionId: 'session-c', href: new window.URL('https://www.mysite.com/x'), referrer: new window.URL('https://beep.boop/#!foo=bar') } },
         { payload: { sessionId: 'session-d', href: new window.URL('https://www.mysite.com/x'), referrer: new window.URL('https://www.mysite.com/a') } }
-      ])
+      ]))
         .then(function (result) {
           assert.deepStrictEqual(result, [
             { key: 'www.example.net', count: [2, 2] },
@@ -228,23 +229,23 @@ describe('src/stats.js', function () {
         })
     })
     it('returns an empty array when given an empty array', function () {
-      return stats.referrers([])
+      return stats.referrers(buildAggregate([]))
         .then(function (result) {
           assert.deepStrictEqual(result, [])
         })
     })
   })
 
-  describe('stats.campaigns(events)', function () {
+  describe('stats.campaigns(aggregate)', function () {
     it('returns sorted referrer campaigns from foreign domains grouped by host', function () {
-      return stats.campaigns([
+      return stats.campaigns(buildAggregate([
         {},
         { payload: { sessionId: 'session-a', href: new window.URL('https://www.mysite.com/x'), referrer: new window.URL('https://www.example.net/foo?utm_campaign=beep') } },
         { payload: { sessionId: 'session-b', href: new window.URL('https://www.mysite.com/y'), referrer: new window.URL('https://www.example.net/bar?something=12&utm_campaign=boop') } },
         { payload: { sessionId: 'session-c', href: new window.URL('https://www.mysite.com/z'), referrer: new window.URL('https://www.example.net/baz') } },
         { payload: { sessionId: 'session-d', href: new window.URL('https://www.mysite.com/x'), referrer: new window.URL('https://beep.boop/site?utm_campaign=beep') } },
         { payload: { sessionId: 'session-e', href: new window.URL('https://www.mysite.com/x'), referrer: new window.URL('https://www.mysite.com/a') } }
-      ])
+      ]))
         .then(function (result) {
           assert.deepStrictEqual(result, [
             { key: 'beep', count: [2, 1] },
@@ -253,22 +254,22 @@ describe('src/stats.js', function () {
         })
     })
     it('returns an empty array when given an empty array', function () {
-      return stats.campaigns([])
+      return stats.campaigns(buildAggregate([]))
         .then(function (result) {
           assert.deepStrictEqual(result, [])
         })
     })
   })
 
-  describe('stats.pages(events)', function () {
+  describe('stats.pages(aggregate)', function () {
     it('returns a sorted list of pages grouped by a clean URL', function () {
-      return stats.pages([
+      return stats.pages(buildAggregate([
         {},
-        { accountId: 'account-a', secretId: 'user-a', payload: { href: new window.URL('https://www.example.net/foo') } },
-        { accountId: 'account-a', secretId: 'user-a', payload: { href: new window.URL('https://www.example.net/foo?param=bar') } },
-        { accountId: 'account-b', secretId: 'user-z', payload: { href: new window.URL('https://beep.boop/site#!/foo') } },
-        { accountId: 'account-a', secretId: null, payload: { } }
-      ])
+        { accountId: 'account-a', secretId: 'user-a', payload: { timestamp: 9, sessionId: 'a', href: new window.URL('https://www.example.net/foo') } },
+        { accountId: 'account-a', secretId: 'user-a', payload: { timestamp: 12, sessionId: 'a', href: new window.URL('https://www.example.net/foo?param=bar') } },
+        { accountId: 'account-b', secretId: 'user-z', payload: { timestamp: 5, sessionId: 'z', href: new window.URL('https://beep.boop/site#!/foo') } },
+        { accountId: 'account-a', secretId: null, payload: { sessionId: 'b' } }
+      ]))
         .then(function (result) {
           assert.deepStrictEqual(result, [
             { key: 'https://www.example.net/foo', count: 2 },
@@ -277,7 +278,7 @@ describe('src/stats.js', function () {
         })
     })
     it('returns an empty array when given no events', function () {
-      return stats.pages([])
+      return stats.pages(buildAggregate([]))
         .then(function (result) {
           assert.deepStrictEqual(result, [])
         })
@@ -286,13 +287,13 @@ describe('src/stats.js', function () {
 
   describe('stats.activePages(events)', function () {
     it('returns a sorted list of active pages grouped by a clean URL', function () {
-      return stats.activePages([
+      return stats.activePages(buildAggregate([
         {},
-        { accountId: 'account-a', secretId: 'user-a', payload: { timestamp: '100', href: new window.URL('https://www.example.net/bar') } },
-        { accountId: 'account-a', secretId: 'user-a', payload: { timestamp: '120', href: new window.URL('https://www.example.net/foo?param=bar') } },
-        { accountId: 'account-b', secretId: 'user-z', payload: { timestamp: '200', href: new window.URL('https://beep.boop/site#!/foo') } },
-        { accountId: 'account-a', secretId: null, payload: { } }
-      ])
+        { accountId: 'account-a', secretId: 'user-a', payload: { sessionId: 'session-a', timestamp: 100, href: new window.URL('https://www.example.net/bar') } },
+        { accountId: 'account-a', secretId: 'user-a', payload: { sessionId: 'session-a', timestamp: 120, href: new window.URL('https://www.example.net/foo?param=bar') } },
+        { accountId: 'account-b', secretId: 'user-z', payload: { sessionId: 'session-z', timestamp: 200, href: new window.URL('https://beep.boop/site#!/foo') } },
+        { accountId: 'account-a', secretId: null, payload: { sessionId: 'another-session' } }
+      ]))
         .then(function (result) {
           assert.deepStrictEqual(result, [
             { key: 'https://beep.boop/site', count: 1 },
@@ -301,25 +302,25 @@ describe('src/stats.js', function () {
         })
     })
     it('returns an empty array when given no events', function () {
-      return stats.pages([])
+      return stats.pages(buildAggregate([]))
         .then(function (result) {
           assert.deepStrictEqual(result, [])
         })
     })
   })
 
-  describe('stats.landingPages(events)', function () {
+  describe('stats.landingPages(aggregate)', function () {
     it('returns a sorted list of landing pages grouped by a clean URL', function () {
-      return stats.landingPages([
+      return stats.landingPages(buildAggregate([
         {},
-        { secretId: 'user-a', payload: { timestamp: '0', sessionId: 'session-a', href: new window.URL('https://www.example.net/foo') } },
-        { secretId: 'user-a', payload: { timestamp: '1', sessionId: 'session-a', href: new window.URL('https://www.example.net/bar') } },
-        { secretId: 'user-a', payload: { timestamp: '2', sessionId: 'session-a', href: new window.URL('https://www.example.net/baz') } },
-        { secretId: 'user-b', payload: { timestamp: '247', sessionId: 'session-b', href: new window.URL('https://www.example.net/foo?param=bar') } },
-        { secretId: 'user-b', payload: { timestamp: '290', sessionId: 'session-b', href: new window.URL('https://www.example.net/bar?param=foo') } },
-        { secretId: 'user-z', payload: { timestamp: '50', sessionId: 'session-c', href: new window.URL('https://beep.boop/site#!/foo') } },
+        { secretId: 'user-a', payload: { timestamp: 0, sessionId: 'session-a', href: new window.URL('https://www.example.net/foo') } },
+        { secretId: 'user-a', payload: { timestamp: 1, sessionId: 'session-a', href: new window.URL('https://www.example.net/bar') } },
+        { secretId: 'user-a', payload: { timestamp: 2, sessionId: 'session-a', href: new window.URL('https://www.example.net/baz') } },
+        { secretId: 'user-b', payload: { timestamp: 247, sessionId: 'session-b', href: new window.URL('https://www.example.net/foo?param=bar') } },
+        { secretId: 'user-b', payload: { timestamp: 290, sessionId: 'session-b', href: new window.URL('https://www.example.net/bar?param=foo') } },
+        { secretId: 'user-z', payload: { timestamp: 50, sessionId: 'session-c', href: new window.URL('https://beep.boop/site#!/foo') } },
         { secretId: null, payload: { } }
-      ])
+      ]))
         .then(function (result) {
           assert.deepStrictEqual(result, [
             { key: 'https://www.example.net/foo', count: 2 },
@@ -328,34 +329,36 @@ describe('src/stats.js', function () {
         })
     })
     it('returns an empty array when given no events', function () {
-      return stats.landingPages([])
+      return stats.landingPages(buildAggregate([]))
         .then(function (result) {
           assert.deepStrictEqual(result, [])
         })
     })
   })
 
-  describe('stats.exitPages(events)', function () {
+  describe('stats.exitPages(aggregate)', function () {
     it('returns a sorted list of exit pages grouped by a clean URL', function () {
-      return stats.exitPages([
+      return stats.exitPages(buildAggregate([
         {},
-        { secretId: 'user-a', payload: { timestamp: '0', sessionId: 'session-a', href: new window.URL('https://www.example.net/foo') } },
-        { secretId: 'user-a', payload: { timestamp: '1', sessionId: 'session-a', href: new window.URL('https://www.example.net/bar') } },
-        { secretId: 'user-a', payload: { timestamp: '2', sessionId: 'session-a', href: new window.URL('https://www.example.net/baz') } },
-        { secretId: 'user-b', payload: { timestamp: '247', sessionId: 'session-b', href: new window.URL('https://www.example.net/foo?param=bar') } },
-        { secretId: 'user-b', payload: { timestamp: '290', sessionId: 'session-b', href: new window.URL('https://www.example.net/bar?param=foo') } },
-        { secretId: 'user-z', payload: { timestamp: '50', sessionId: 'session-c', href: new window.URL('https://beep.boop/site#!/foo') } },
+        { secretId: 'user-a', payload: { timestamp: 0, sessionId: 'session-a', href: new window.URL('https://www.example.net/foo') } },
+        { secretId: 'user-a', payload: { timestamp: 1, sessionId: 'session-a', href: new window.URL('https://www.example.net/bar') } },
+        { secretId: 'user-a', payload: { timestamp: 2, sessionId: 'session-a', href: new window.URL('https://www.example.net/baz') } },
+        { secretId: 'user-b', payload: { timestamp: 247, sessionId: 'session-b', href: new window.URL('https://www.example.net/foo?param=bar') } },
+        { secretId: 'user-b', payload: { timestamp: 290, sessionId: 'session-b', href: new window.URL('https://www.example.net/bar?param=foo') } },
+        { secretId: 'user-z', payload: { timestamp: 50, sessionId: 'session-c', href: new window.URL('https://beep.boop/site#!/foo') } },
+        { secretId: 'user-x', payload: { timestamp: 60, sessionId: 'session-c', href: new window.URL('https://www.example.net/foo') } },
+        { secretId: 'user-x', payload: { timestamp: 99, sessionId: 'session-c', href: new window.URL('https://www.example.net/bar') } },
         { secretId: null, payload: { } }
-      ])
+      ]))
         .then(function (result) {
           assert.deepStrictEqual(result, [
-            { key: 'https://www.example.net/bar', count: 1 },
+            { key: 'https://www.example.net/bar', count: 2 },
             { key: 'https://www.example.net/baz', count: 1 }
           ])
         })
     })
     it('returns an empty array when given no events', function () {
-      return stats.exitPages([])
+      return stats.exitPages(buildAggregate([]))
         .then(function (result) {
           assert.deepStrictEqual(result, [])
         })

@@ -125,6 +125,7 @@ function Queries (storage) {
     var uniqueUsers = stats.visitors(eventsInBounds)
     var uniqueAccounts = stats.accounts(eventsInBounds)
     var returningUsers = stats.returningUsers(eventsInBounds, allEvents)
+    var loss = stats.loss(eventsInBounds)
 
     var empty = storage.countEvents(accountId).then(function (count) {
       return count === 0
@@ -164,20 +165,21 @@ function Queries (storage) {
 
     var decryptedEvents = decryptions[0]
     var realtime = decryptions[1]
-    var loss = stats.loss(decryptedEvents)
-    var uniqueSessions = stats.uniqueSessions(decryptedEvents)
-    var bounceRate = stats.bounceRate(decryptedEvents)
-    var referrers = stats.referrers(decryptedEvents)
-    var pages = stats.pages(decryptedEvents)
-    var campaigns = stats.campaigns(decryptedEvents)
-    var sources = stats.sources(decryptedEvents)
-    var avgPageload = stats.avgPageload(decryptedEvents)
-    var avgPageDepth = stats.avgPageDepth(decryptedEvents)
-    var landingPages = stats.landingPages(decryptedEvents)
-    var exitPages = stats.exitPages(decryptedEvents)
-    var mobileShare = stats.mobileShare(decryptedEvents)
+    var aggregatedEvents = decryptedEvents.then(buildAggregate)
 
-    var livePages = stats.activePages(realtime)
+    var uniqueSessions = stats.uniqueSessions(aggregatedEvents)
+    var bounceRate = stats.bounceRate(aggregatedEvents)
+    var referrers = stats.referrers(aggregatedEvents)
+    var pages = stats.pages(aggregatedEvents)
+    var campaigns = stats.campaigns(aggregatedEvents)
+    var sources = stats.sources(aggregatedEvents)
+    var avgPageload = stats.avgPageload(aggregatedEvents)
+    var avgPageDepth = stats.avgPageDepth(aggregatedEvents)
+    var landingPages = stats.landingPages(aggregatedEvents)
+    var exitPages = stats.exitPages(aggregatedEvents)
+    var mobileShare = stats.mobileShare(aggregatedEvents)
+
+    var livePages = stats.activePages(realtime.then(buildAggregate))
     var liveUsers = stats.visitors(realtime)
 
     return Promise
@@ -268,4 +270,34 @@ function toUpperBound (date) {
 
 function toLowerBound (date) {
   return ULID.ulid(date.getTime() - 1)
+}
+
+module.exports.buildAggregate = buildAggregate
+function buildAggregate (events) {
+  return events
+    .filter(function (event) {
+      return event.payload
+    })
+    .slice()
+    .sort(function (a, b) {
+      return a.payload.timestamp > b.payload.timestamp ? 1 : -1
+    })
+    .reduce(function (agg, event) {
+      agg.accountIds.push(event.accountId)
+      agg.eventIds.push(event.eventId)
+      agg.sessionIds.push(event.payload.sessionId)
+      agg.hrefs.push(event.payload.href)
+      agg.referrers.push(event.payload.referrer)
+      agg.pageloads.push(event.payload.pageload)
+      agg.isMobiles.push(event.payload.isMobile)
+      return agg
+    }, {
+      accountIds: [],
+      eventIds: [],
+      sessionIds: [],
+      hrefs: [],
+      referrers: [],
+      pageloads: [],
+      isMobiles: []
+    })
 }

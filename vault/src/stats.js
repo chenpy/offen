@@ -25,29 +25,21 @@ function loss (events) {
 // has been no follow-up event.
 exports.bounceRate = consumeAsync(bounceRate)
 
-function bounceRate (events) {
-  var sessionCounts = 0
-  var bounces = _.chain(events)
-    .map(_.property(['payload', 'sessionId']))
-    .compact()
-    .countBy(_.identity)
-    .values()
-    .tap(function (sessions) {
-      sessionCounts = sessions.length
-    })
-    .filter(function (pagesInSession) {
-      return pagesInSession === 1
-    })
-    .size()
-    .value()
+function bounceRate (aggregate) {
+  var compacted = _.compact(aggregate.sessionIds)
+  var countById = _.countBy(compacted, _.identity)
+  var sessions = _.values(countById)
+  var bounces = _.filter(sessions, function (length) {
+    return length === 1
+  })
 
-  if (sessionCounts === 0) {
+  if (sessions.length === 0) {
     return 0
   }
 
   // The bounce rate is the percentage of sessions where there is only
   // one event with the respective identifier in the given se
-  return bounces / sessionCounts
+  return bounces.length / sessions.length
 }
 
 // `referrers` is the list of referrer values, grouped by host name. Common
@@ -55,77 +47,61 @@ function bounceRate (events) {
 // name assigned to their bucket.
 exports.referrers = consumeAsync(referrers)
 
-function referrers (events) {
-  return _referrers(events, function (set) {
-    return set
-      .map(function (event) {
-        return event.payload.referrer.host || event.payload.referrer.href
-      })
-      .map(placeInBucket)
+function referrers (aggregate) {
+  return _referrers(aggregate, function (ref) {
+    return placeInBucket(ref.host || ref.href)
   })
 }
 
 // `campaigns` groups the referrer values by their `utm_campaign` if present
 exports.campaigns = consumeAsync(campaigns)
 
-function campaigns (events) {
-  return _referrers(events, function (set) {
-    return set
-      .map(function (event) {
-        return event.payload.referrer.searchParams.get('utm_campaign')
-      })
+function campaigns (aggregate) {
+  return _referrers(aggregate, function (ref) {
+    return ref.searchParams.get('utm_campaign')
   })
 }
 
 // `sources` groups the referrer values by their `utm_source` if present
 exports.sources = consumeAsync(sources)
 
-function sources (events) {
-  return _referrers(events, function (set) {
-    return set
-      .map(function (event) {
-        return event.payload.referrer.searchParams.get('utm_source')
-      })
+function sources (aggregate) {
+  return _referrers(aggregate, function (ref) {
+    return ref.searchParams.get('utm_source')
   })
 }
 
-function _referrers (events, groupFn) {
-  var uniqueForeign = events
-    .filter(function (event) {
-      if (event.secretId === null || !event.payload || !event.payload.referrer) {
-        return false
-      }
-      return event.payload.referrer.host !== event.payload.href.host
-    })
-    .reduce(function (acc, event) {
-      function unknownSession (knownEvent) {
-        return knownEvent.payload.sessionId !== event.payload.sessionId
-      }
-      if (_.every(acc, unknownSession)) {
-        acc.push(event)
-      }
-      return acc
-    }, [])
-
-  var sessionIds = _.map(uniqueForeign, _.property(['payload', 'sessionId']))
-  var values = groupFn(uniqueForeign)
-  return _.chain(values)
-    .zip(sessionIds)
-    .filter(_.head)
-    .groupBy(_.head)
-    .pairs()
-    .map(function (pair) {
-      var sessions = _.map(pair[1], _.last)
-      var associatedViews = _.filter(events, function (event) {
-        return event.payload &&
-          event.payload.sessionId &&
-          _.contains(sessions, event.payload.sessionId)
-      })
+function _referrers (aggregate, extractValueFn) {
+  return _.chain(aggregate.sessionIds)
+    .uniq()
+    .map(function (sessionId) {
+      var index = _.indexOf(aggregate.sessionIds, sessionId)
       return {
-        key: pair[0],
+        href: aggregate.hrefs[index],
+        referrer: aggregate.referrers[index],
+        length: aggregate.sessionIds.filter(function (id) { return id === sessionId }).length
+      }
+    })
+    .filter(function (sessionItem) {
+      return sessionItem.referrer && sessionItem.href.host !== sessionItem.referrer.host
+    })
+    .map(function (sessionItem) {
+      sessionItem.referrerVal = extractValueFn(sessionItem.referrer)
+      return sessionItem
+    })
+    .filter(function (sessionItem) {
+      return sessionItem.referrerVal
+    })
+    .groupBy('referrerVal')
+    .map(function (sessionItems, key) {
+      var sum = sessionItems.reduce(function (acc, next) {
+        return acc + next.length
+      }, 0)
+      return {
+        key: key,
         count: [
-          sessions.length,
-          associatedViews.length / sessions.length
+          sessionItems.length,
+          sum / sessionItems.length
         ]
       }
     })
@@ -139,8 +115,8 @@ function _referrers (events, groupFn) {
 // before grouping.
 exports.pages = consumeAsync(pages)
 
-function pages (events) {
-  return _pages(events, false)
+function pages (aggregate) {
+  return _pages(aggregate, false)
 }
 
 // `activePages` contains the pages last visited by each user in the given set
@@ -149,36 +125,32 @@ function pages (events) {
 // before grouping.
 exports.activePages = consumeAsync(activePages)
 
-function activePages (events) {
-  return _pages(events, true)
+function activePages (aggregate) {
+  return _pages(aggregate, true)
 }
 
-function _pages (events, perUser) {
-  var result = _.chain(events)
-    .filter(function (event) {
-      return event.secretId !== null && event.payload && event.payload.href
-    })
-
-  if (perUser) {
-    // in this branch, only the most recent event for each user
-    // will be considered
-    var sortBy = _.property(['payload', 'timestamp'])
-    result = result
-      .groupBy('secretId')
-      .pairs()
-      .map(function (pair) {
-        return _.last(
-          _.sortBy(pair[1], sortBy)
-        )
+function _pages (aggregate, perSession) {
+  var hrefSelection = perSession
+    ? _.chain(aggregate.sessionIds)
+      .uniq()
+      .map(function (sessionId) {
+        return _.lastIndexOf(aggregate.sessionIds, sessionId)
       })
-      .flatten(true)
-  }
+      .map(function (index) {
+        return aggregate.hrefs[index]
+      })
+      .value()
+    : aggregate.hrefs
 
-  return result
-    .map(function (event) {
-      var strippedHref = event.payload.href.origin + event.payload.href.pathname
-      return { accountId: event.accountId, href: strippedHref }
+  return _.chain(hrefSelection)
+    .map(function (href, index) {
+      if (!href) {
+        return null
+      }
+      var strippedHref = href.origin + href.pathname
+      return { accountId: aggregate.accountIds[index], href: strippedHref }
     })
+    .compact()
     .groupBy('accountId')
     .values()
     .map(function (pageviewsPerAccount) {
@@ -200,65 +172,49 @@ function _pages (events, perUser) {
 // set of events
 exports.avgPageload = consumeAsync(avgPageload)
 
-function avgPageload (events) {
-  var count
-  var total = _.chain(events)
-    .map(_.property(['payload', 'pageload']))
-    .compact()
-    .filter(function (value) { return value > 0 })
-    .tap(function (entries) {
-      count = entries.length
-    })
-    .reduce(function (acc, next) {
-      return acc + next
-    }, 0)
-    .value()
-
+function avgPageload (aggregate) {
+  var applicable = aggregate.pageloads.filter(function (pageload) {
+    return pageload && pageload > 0
+  })
+  var count = applicable.length
   if (count === 0) {
     return null
   }
-
-  return total / count
+  var sum = applicable.reduce(function (acc, next) {
+    return acc + next
+  }, 0)
+  return sum / count
 }
 
 // `avgPageDepth` calculates the average session length in the given
 // set of events
 exports.avgPageDepth = consumeAsync(avgPageDepth)
 
-function avgPageDepth (events) {
-  var views = countKeys(['payload', 'sessionId'], false)(events)
-  var uniqueSessions = countKeys(['payload', 'sessionId'], true)(events)
-  if (uniqueSessions === 0) {
+function avgPageDepth (aggregate) {
+  if (aggregate.sessionIds.length === 0) {
     return null
   }
-  return views / uniqueSessions
+  var compacted = _.compact(aggregate.sessionIds)
+  var uniqueSessions = _.uniq(compacted).length
+  return compacted.length / uniqueSessions
 }
 
 exports.exitPages = consumeAsync(exitPages)
-
 // `exitPages` groups the given events by session identifier and then
 // returns a sorted list of exit pages for these sessions. URLs will be
 // stripped off query and hash parameters. Sessions that only contain
 // a single page will be excluded.
-function exitPages (events) {
-  return _.chain(events)
-    .filter(function (e) {
-      return e.secretId !== null && e.payload && e.payload.sessionId && e.payload.href
+function exitPages (aggregate) {
+  return _.chain(aggregate.sessionIds)
+    .countBy(_.identity)
+    .pairs()
+    .filter(function (pair) {
+      return pair[1] !== 1
     })
-    .groupBy(function (e) {
-      return e.payload.sessionId
-    })
-    .map(function (events, key) {
-      if (events.length < 2) {
-        return null
-      }
-      // for each session, we are only interested in the first
-      // event and its href value
-      var landing = _.chain(events)
-        .sortBy('timestamp')
-        .last()
-        .value()
-      return landing.payload.href.origin + landing.payload.href.pathname
+    .map(function (pair) {
+      var lastIndex = _.lastIndexOf(aggregate.sessionIds, pair[0])
+      var match = aggregate.hrefs[lastIndex]
+      return match && (match.origin + match.pathname)
     })
     .compact()
     .countBy(_.identity)
@@ -276,30 +232,20 @@ function exitPages (events) {
 // stripped off query and hash parameters.
 exports.landingPages = consumeAsync(landingPages)
 
-function landingPages (events) {
-  return _.chain(events)
-    .filter(function (e) {
-      return e.secretId !== null && e.payload && e.payload.sessionId && e.payload.href
+function landingPages (aggregate) {
+  return _.chain(aggregate.sessionIds)
+    .uniq()
+    .map(function (sessionId) {
+      var firstIndex = _.indexOf(aggregate.sessionIds, sessionId)
+      var match = aggregate.hrefs[firstIndex]
+      return match && (match.origin + match.pathname)
     })
-    .groupBy(function (e) {
-      return e.payload.sessionId
-    })
-    .map(function (events, key) {
-      // for each session, we are only interested in the first
-      // event and its href value
-      var landing = _.chain(events)
-        .sortBy('timestamp')
-        .first()
-        .value()
-      return landing.payload.href.origin + landing.payload.href.pathname
-    })
+    .compact()
     .countBy(_.identity)
     .pairs()
     .map(function (pair) {
       return { key: pair[0], count: pair[1] }
     })
-    .sortBy('count')
-    .reverse()
     .value()
 }
 
@@ -307,21 +253,12 @@ function landingPages (events) {
 // in the given set of events.
 exports.mobileShare = consumeAsync(mobileShare)
 
-function mobileShare (events) {
-  var allEvents
-  var mobileEvents = _.chain(events)
-    .filter('secretId')
-    .tap(function (events) {
-      allEvents = events.length
-    })
-    .filter(_.property(['payload', 'isMobile']))
-    .size()
-    .value()
-
-  if (allEvents === 0) {
+function mobileShare (aggregate) {
+  if (!aggregate.isMobiles.length) {
     return null
   }
-  return mobileEvents / allEvents
+  var mobile = _.compact(aggregate.isMobiles)
+  return mobile.length / aggregate.isMobiles.length
 }
 
 // `retention` calculates a retention matrix for the given slices of events.
@@ -399,7 +336,14 @@ exports.visitors = consumeAsync(countKeys('secretId', true))
 // This is the number of unique accounts for the given timeframe
 exports.accounts = consumeAsync(countKeys('accountId', true))
 // This is the number of unique sessions for the given timeframe
-exports.uniqueSessions = consumeAsync(countKeys(['payload', 'sessionId'], true))
+exports.uniqueSessions = consumeAsync(uniqueSessions)
+function uniqueSessions (aggregate) {
+  return _.chain(aggregate.sessionIds)
+    .compact()
+    .uniq()
+    .size()
+    .value()
+}
 
 function countKeys (keys, unique) {
   return function (elements) {
